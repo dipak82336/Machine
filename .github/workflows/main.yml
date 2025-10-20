@@ -1,0 +1,71 @@
+name: Live Data Exchange Tunnel
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_interval_seconds:
+        description: 'Data commit interval in seconds'
+        required: true
+        default: '60'
+
+permissions:
+  contents: write
+
+jobs:
+  run-live-tunnel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2. Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: 3. Install Dependencies
+        run: npm install
+
+      - name: 4. Start Node.js Server in Background
+        run: npm start &
+
+      - name: 5. Start Cloudflare Tunnel and Get URL
+        run: |
+          # Cloudflared ડાઉનલોડ અને ઇન્સ્ટોલ કરો
+          wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
+          chmod +x cloudflared
+          
+          # ટનલને બેકગ્રાઉન્ડમાં શરૂ કરો અને લોગ ફાઈલમાં આઉટપુટ મોકલો
+          ./cloudflared tunnel --url http://localhost:8080 > cloudflared.log 2>&1 &
+          
+          # URL બનવા માટે થોડો સમય આપો
+          sleep 10
+          
+          # લોગ ફાઈલમાંથી URL શોધીને પ્રિન્ટ કરો
+          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cloudflared.log | head -n 1)
+          echo "===================================================================="
+          echo "✅ Your temporary website is live at: $TUNNEL_URL"
+          echo "   (This link will be active for up to 6 hours)"
+          echo "===================================================================="
+          
+      - name: 6. Auto-commit Data Changes
+        run: |
+          # Git યુઝરનેમ અને ઇમેઇલ સેટ કરો
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions-bot@github.com"
+          
+          # અનંત લૂપ જે ડેટાને કમિટ કરશે
+          while true; do
+            # નક્કી કરેલા સમય સુધી રાહ જુઓ
+            sleep ${{ github.event.inputs.commit_interval_seconds }}
+            
+            # જો 'data' ફોલ્ડરમાં ફેરફાર હોય તો જ આગળ વધો
+            if [ -z "$(git status --porcelain data)" ]; then
+              echo "No changes in data directory. Waiting..."
+            else
+              echo "Changes detected. Committing and pushing data..."
+              git add data/
+              git commit -m "Auto-commit data changes [$(date)]"
+              git push
+            fi
+          done
