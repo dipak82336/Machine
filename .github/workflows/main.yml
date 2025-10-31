@@ -59,7 +59,8 @@ jobs:
           echo "   (This link will be active for up to 6 hours)"
           echo "===================================================================="
           
-      - name: 6. Auto-commit Data Changes (Fixed)
+
+      - name: 6. Auto-commit Data Changes (Final Robust Version)
         run: |
           # Git યુઝરનેમ અને ઇમેઇલ સેટ કરો
           git config --global user.name "GitHub Actions Bot"
@@ -70,21 +71,19 @@ jobs:
             # નક્કી કરેલા સમય સુધી રાહ જુઓ
             sleep ${{ github.event.inputs.commit_interval_seconds }}
             
-            # જો 'data' ફોલ્ડરમાં ફેરફાર હોય તો જ આગળ વધો
-            # `git status` પહેલાં ફેરફારો ફેચ કરો
-            git fetch origin main
-
+            # **મુખ્ય સુધારો: કમિટ કરતા પહેલાં હંમેશા પુલ કરો**
+            # આનાથી ખાતરી થશે કે આપણી પાસે હંમેશા નવીનતમ કોડ છે.
+            echo "Pulling latest changes from remote repository..."
+            git pull --rebase origin main
+            
+            # હવે તપાસો કે 'data' ફોલ્ડરમાં કોઈ સ્થાનિક ફેરફાર છે કે નહીં
             if [ -z "$(git status --porcelain data)" ]; then
-              echo "No changes in data directory. Waiting..."
+              echo "No new local changes detected in data directory. Waiting..."
             else
-              echo "Changes detected. Committing and pushing data..."
+              echo "Local changes detected. Committing and pushing data..."
               git add data/
+              # કમિટ મેસેજમાં યુનિકનેસ માટે એક રેન્ડમ નંબર ઉમેરી શકાય છે
               git commit -m "Auto-commit data changes [$(date)]"
-              
-              # **મુખ્ય સુધારો:** પુશ કરતા પહેલાં રિમોટમાંથી ફેરફારો પુલ કરો
-              # આનાથી 'rejected' એરર ક્યારેય નહીં આવે.
-              git pull --rebase origin main
-              
               git push
               echo "Data pushed successfully."
             fi
