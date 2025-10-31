@@ -29,7 +29,7 @@ jobs:
       - name: 4. Start Node.js Server in Background
         run: npm start &
 
-      - name: 5. Start Cloudflare Tunnel and Get URL
+      - name: 5. Start Cloudflare Tunnel and Get URL (Robust Method)
         run: |
           # Cloudflared ડાઉનલોડ અને ઇન્સ્ટોલ કરો
           wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
@@ -38,17 +38,28 @@ jobs:
           # ટનલને બેકગ્રાઉન્ડમાં શરૂ કરો અને લોગ ફાઈલમાં આઉટપુટ મોકલો
           ./cloudflared tunnel --url http://localhost:8080 > cloudflared.log 2>&1 &
           
-          # URL બનવા માટે થોડો સમય આપો
-          sleep 10
+          # **સુધારો:** URL બનવા માટે રાહ જુઓ (મહત્તમ 60 સેકન્ડ)
+          echo "Waiting for Cloudflare tunnel URL..."
+          for i in {1..12}; do
+            TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cloudflared.log | head -n 1)
+            if [ -n "$TUNNEL_URL" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "::error::Could not retrieve Cloudflare tunnel URL after 60 seconds."
+            cat cloudflared.log
+            exit 1
+          fi
           
-          # લોગ ફાઈલમાંથી URL શોધીને પ્રિન્ટ કરો
-          TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' cloudflared.log | head -n 1)
           echo "===================================================================="
           echo "✅ Your temporary website is live at: $TUNNEL_URL"
           echo "   (This link will be active for up to 6 hours)"
           echo "===================================================================="
           
-      - name: 6. Auto-commit Data Changes
+      - name: 6. Auto-commit Data Changes (Fixed)
         run: |
           # Git યુઝરનેમ અને ઇમેઇલ સેટ કરો
           git config --global user.name "GitHub Actions Bot"
@@ -60,12 +71,21 @@ jobs:
             sleep ${{ github.event.inputs.commit_interval_seconds }}
             
             # જો 'data' ફોલ્ડરમાં ફેરફાર હોય તો જ આગળ વધો
+            # `git status` પહેલાં ફેરફારો ફેચ કરો
+            git fetch origin main
+
             if [ -z "$(git status --porcelain data)" ]; then
               echo "No changes in data directory. Waiting..."
             else
               echo "Changes detected. Committing and pushing data..."
               git add data/
               git commit -m "Auto-commit data changes [$(date)]"
+              
+              # **મુખ્ય સુધારો:** પુશ કરતા પહેલાં રિમોટમાંથી ફેરફારો પુલ કરો
+              # આનાથી 'rejected' એરર ક્યારેય નહીં આવે.
+              git pull --rebase origin main
+              
               git push
+              echo "Data pushed successfully."
             fi
           done
